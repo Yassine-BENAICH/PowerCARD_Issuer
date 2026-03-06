@@ -1,0 +1,198 @@
+version: "3.9"
+
+services:
+  # ─── PostgreSQL Databases ───────────────────────────────────────────────────
+  postgres-cards:
+    image: postgres:16-alpine
+    container_name: powercard-db-cards
+    environment:
+      POSTGRES_DB: powercard_cards
+      POSTGRES_USER: powercard
+      POSTGRES_PASSWORD: powercard_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata-cards:/var/lib/postgresql/data
+    networks:
+      - powercard-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U powercard -d powercard_cards"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-accounts:
+    image: postgres:16-alpine
+    container_name: powercard-db-accounts
+    environment:
+      POSTGRES_DB: powercard_accounts
+      POSTGRES_USER: powercard
+      POSTGRES_PASSWORD: powercard_secret
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata-accounts:/var/lib/postgresql/data
+    networks:
+      - powercard-net
+
+  postgres-transactions:
+    image: postgres:16-alpine
+    container_name: powercard-db-transactions
+    environment:
+      POSTGRES_DB: powercard_transactions
+      POSTGRES_USER: powercard
+      POSTGRES_PASSWORD: powercard_secret
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata-transactions:/var/lib/postgresql/data
+    networks:
+      - powercard-net
+
+  postgres-authorization:
+    image: postgres:16-alpine
+    container_name: powercard-db-authorization
+    environment:
+      POSTGRES_DB: powercard_authorization
+      POSTGRES_USER: powercard
+      POSTGRES_PASSWORD: powercard_secret
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata-authorization:/var/lib/postgresql/data
+    networks:
+      - powercard-net
+
+  postgres-notifications:
+    image: postgres:16-alpine
+    container_name: powercard-db-notifications
+    environment:
+      POSTGRES_DB: powercard_notifications
+      POSTGRES_USER: powercard
+      POSTGRES_PASSWORD: powercard_secret
+    ports:
+      - "5436:5432"
+    volumes:
+      - pgdata-notifications:/var/lib/postgresql/data
+    networks:
+      - powercard-net
+
+  # ─── Spring Boot Microservices ───────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: powercard-api-gateway
+    ports:
+      - "8080:8080"
+    networks:
+      - powercard-net
+    depends_on:
+      - card-service
+      - account-service
+      - transaction-service
+      - authorization-service
+      - notification-service
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+  card-service:
+    build:
+      context: ./card-service
+      dockerfile: Dockerfile
+    container_name: powercard-card-service
+    ports:
+      - "8081:8081"
+    networks:
+      - powercard-net
+    depends_on:
+      postgres-cards:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-cards:5432/powercard_cards
+      SPRING_DATASOURCE_USERNAME: powercard
+      SPRING_DATASOURCE_PASSWORD: powercard_secret
+
+  account-service:
+    build:
+      context: ./account-service
+      dockerfile: Dockerfile
+    container_name: powercard-account-service
+    ports:
+      - "8082:8082"
+    networks:
+      - powercard-net
+    depends_on:
+      - postgres-accounts
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-accounts:5432/powercard_accounts
+      SPRING_DATASOURCE_USERNAME: powercard
+      SPRING_DATASOURCE_PASSWORD: powercard_secret
+
+  transaction-service:
+    build:
+      context: ./transaction-service
+      dockerfile: Dockerfile
+    container_name: powercard-transaction-service
+    ports:
+      - "8083:8083"
+    networks:
+      - powercard-net
+    depends_on:
+      - postgres-transactions
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-transactions:5432/powercard_transactions
+
+  authorization-service:
+    build:
+      context: ./authorization-service
+      dockerfile: Dockerfile
+    container_name: powercard-authorization-service
+    ports:
+      - "8084:8084"
+    networks:
+      - powercard-net
+    depends_on:
+      - postgres-authorization
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-authorization:5432/powercard_authorization
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: powercard-notification-service
+    ports:
+      - "8085:8085"
+    networks:
+      - powercard-net
+    depends_on:
+      - postgres-notifications
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-notifications:5432/powercard_notifications
+      MAIL_USERNAME: ${MAIL_USERNAME:-noreply@powercard.com}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-changeme}
+
+  # ─── Vite Frontend ──────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: powercard-frontend
+    ports:
+      - "5173:80"
+    networks:
+      - powercard-net
+    depends_on:
+      - api-gateway
+
+volumes:
+  pgdata-cards:
+  pgdata-accounts:
+  pgdata-transactions:
+  pgdata-authorization:
+  pgdata-notifications:
+
+networks:
+  powercard-net:
+    driver: bridge
